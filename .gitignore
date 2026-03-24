@@ -35,7 +35,8 @@ env/
 
 # Project specific
 talks.json
-mws2025_podcast.xml
+mws*_podcast.xml
+blog_log.md
 *.log
 
 # ChromeDriver

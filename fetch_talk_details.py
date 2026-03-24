@@ -8,6 +8,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 import getpass
+import argparse
 
 class WebScraper:
     def __init__(self, base_url: str):
@@ -122,7 +123,8 @@ class WebScraper:
                 title_link = title_h4.select_one('a')
                 if title_link:
                     title = title_link.get_text(strip=True)
-                    
+                    talk_url = title_link.get('href', '')
+
                     # Get the third td (index 2)
                     presenter_td = row.select('td')[2] if len(row.select('td')) > 2 else None
                     
@@ -173,22 +175,23 @@ class WebScraper:
                         if download_div:
                             for link in download_div.select('a'):
                                 href = link.get('href', '')
-                                text = link.get_text(strip=True)
-                                if 'Transcript' in text:
+                                text = link.get_text(strip=True).lower()
+                                if 'transcript' in text:
                                     media_links['transcript'] = href
-                                elif 'Audio: 30-minute' in text:
+                                elif 'audio: 30-minute' in text or 'audio: 30 minute' in text:
                                     media_links['audio_30min'] = href
-                                elif 'Audio: Full Length' in text:
+                                elif 'audio: full' in text:
                                     media_links['audio_full'] = href
-                                elif 'Video: 30-minute' in text:
+                                elif 'video: 30-minute' in text or 'video: 30 minute' in text:
                                     media_links['video_30min'] = href
-                                elif 'Video: Full Length' in text:
+                                elif 'video: full' in text:
                                     media_links['video_full'] = href
                         
                         print(f"Found talk: {title} by {presenter_name}")  # Debug print
                         
                         talks.append({
                             'title': title,
+                            'talk_url': talk_url,
                             'presenter_name': presenter_name,
                             'presenter_role': presenter_role,
                             'institution': institution,
@@ -211,25 +214,47 @@ class WebScraper:
             json.dump(output, f, ensure_ascii=False, indent=2)
 
 def main():
+    parser = argparse.ArgumentParser(description='Fetch talk details from the Migraine World Summit')
+    parser.add_argument('--year', type=int, default=2026, help='Summit year (default: 2026)')
+    args = parser.parse_args()
+
     # Get login credentials
     username = input("Enter your username: ")
     password = getpass.getpass("Enter your password: ")
-    
-    # Example usage
-    scraper = WebScraper("https://migraineworldsummit.com/summit/2025-summit/")
-    
+
+    summit_url = f"https://migraineworldsummit.com/summit/{args.year}-summit/"
+    scraper = WebScraper(summit_url)
+
     try:
         # Login first
         if not scraper.login(username, password):
             print("Failed to login. Exiting...")
             return
-            
+
         # Fetch and parse the page
         html_content = scraper.fetch_page(scraper.base_url)
         if html_content:
             talks = scraper.parse_talks(html_content)
             scraper.save_results(talks, "talks.json")
-            print(f"Saved {len(talks)} talks to talks.json")
+
+            # Summary
+            total = len(talks)
+            has_audio_full = sum(1 for t in talks if t['media_links']['audio_full'])
+            has_audio_30 = sum(1 for t in talks if t['media_links']['audio_30min'])
+            has_video_full = sum(1 for t in talks if t['media_links']['video_full'])
+            has_transcript = sum(1 for t in talks if t['media_links']['transcript'])
+            no_audio = sum(1 for t in talks if not t['media_links']['audio_full'] and not t['media_links']['audio_30min'])
+
+            print(f"\nSaved {total} talks to talks.json")
+            print(f"  Audio (full):    {has_audio_full}/{total}")
+            print(f"  Audio (30-min):  {has_audio_30}/{total}")
+            print(f"  Video (full):    {has_video_full}/{total}")
+            print(f"  Transcripts:     {has_transcript}/{total}")
+            if no_audio:
+                print(f"  No audio at all: {no_audio}/{total}")
+                for t in talks:
+                    if not t['media_links']['audio_full'] and not t['media_links']['audio_30min']:
+                        print(f"    - {t['title']}")
     finally:
         # Always close the Selenium driver
         scraper.close()
